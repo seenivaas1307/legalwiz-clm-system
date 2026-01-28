@@ -1,0 +1,227 @@
+# .gitignore for LegalWiz CLM Project
+# Python FastAPI + Neo4j + PostgreSQL
+
+# ==================== CRITICAL - SECRETS ====================
+# Environment variables - NEVER COMMIT!
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+!.env.example
+
+# API Keys and Credentials
+secrets.json
+credentials.json
+*.key
+*.pem
+*.crt
+
+# ==================== PYTHON ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.virtualenv/
+pyvenv.cfg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# ==================== DATABASES ====================
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# PostgreSQL dumps
+*.dump
+*.pgsql
+
+# Neo4j local data
+neo4j/
+neo4j-data/
+.neo4j/
+
+# Database backups
+backups/
+*.backup
+
+# ==================== IDE / EDITORS ====================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# Atom
+.atom/
+
+# ==================== OPERATING SYSTEMS ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ==================== LOGS ====================
+*.log
+logs/
+*.log.*
+log/
+npm-debug.log*
+yarn-debug.log*
+lerna-debug.log*
+
+# ==================== TEMPORARY FILES ====================
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+*.bak
+*.backup
+*.old
+
+# ==================== GENERATED FILES ====================
+# Generated contracts/documents
+generated/
+exports/
+output/
+*.pdf
+*.docx
+*.doc
+
+# ==================== NODE.JS (if you add frontend) ====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==================== PROJECT SPECIFIC ====================
+# Test/development data
+dev_data/
+test_data/
+
+# User uploads
+uploads/
+user_files/
+media/
+
+# Redis
+dump.rdb
+
+# Sessions
+sessions/
