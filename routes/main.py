@@ -22,7 +22,17 @@ from customization_routes import router as customization_router
 from risk_routes import router as risk_router
 from chatbot_routes import router as chatbot_router
 
-app = FastAPI(title="LegalWiz CLM API", version="2.0.0", description="Contract Lifecycle Management with Graph RAG AI")
+# Export & Utility Routes
+from export_routes import router as export_router
+from template_routes import router as template_router
+from version_routes import router as version_router
+from esign_routes import router as esign_router
+
+# Auth
+from auth_routes import router as auth_router
+from auth_middleware import get_current_user as auth_get_current_user
+
+app = FastAPI(title="LegalWiz CLM API", version="3.0.0", description="Contract Lifecycle Management with Graph RAG AI")
 
 # CORS for React frontend
 app.add_middleware(
@@ -32,6 +42,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security Middleware (rate limiting + request ID)
+from middleware import setup_middleware
+setup_middleware(app)
+
+# Global Error Handlers
+from error_handlers import register_error_handlers
+register_error_handlers(app)
 
 # Core Routes
 app.include_router(party_routes)
@@ -44,6 +62,15 @@ app.include_router(recommendation_router)
 app.include_router(customization_router)
 app.include_router(risk_router)
 app.include_router(chatbot_router)
+
+# Export & Utility Routes
+app.include_router(export_router)
+app.include_router(template_router)
+app.include_router(version_router)
+app.include_router(esign_router)
+
+# Auth
+app.include_router(auth_router)
 
 # Supabase connection pool
 # DB_CONFIG = {
@@ -108,10 +135,14 @@ def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
     return conn
 
-# Dependency to get current user (from JWT - placeholder)
+# Dependency to get current user ID (delegates to auth_middleware)
 def get_current_user() -> str:
-    """Mock user - returns same UUID every time"""
-    return "11111111-1111-1111-1111-111111111111"    # Mock UUID for now
+    """Returns current user UUID. Uses auth_middleware when AUTH_REQUIRED=true."""
+    from auth_middleware import AUTH_REQUIRED, MOCK_USER
+    if not AUTH_REQUIRED:
+        return MOCK_USER["id"]
+    # When auth is required, routes should use Depends(auth_get_current_user) directly
+    return MOCK_USER["id"]
 
 # ROUTES FOR CONTRACTS (MAIN TABLE)
 @app.post("/api/contracts", response_model=ContractResponse, status_code=201)

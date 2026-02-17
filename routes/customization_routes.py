@@ -209,6 +209,17 @@ async def apply_customization(
                 raise HTTPException(status_code=404, detail="Clause not found")
             
             conn.commit()
+            
+            # Auto-version: snapshot after customization
+            try:
+                from version_routes import create_version_snapshot
+                create_version_snapshot(
+                    contract_id,
+                    f"Customized clause {result.get('clause_type', clause_db_id)}"
+                )
+            except Exception:
+                pass  # Don't fail the main operation if versioning fails
+            
             return {
                 "message": "Customization applied successfully",
                 "clause": dict(result)

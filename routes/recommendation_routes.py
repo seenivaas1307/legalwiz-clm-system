@@ -357,5 +357,16 @@ async def apply_recommendation(contract_id: str, request: ApplyRecommendationReq
                     status_code=400,
                     detail=f"Unknown recommendation type: {request.recommendation_type}"
                 )
+    
+            # Auto-version: snapshot after recommendation applied
+            try:
+                from version_routes import create_version_snapshot
+                create_version_snapshot(
+                    contract_id,
+                    f"Applied recommendation: {request.recommendation_type} for {request.clause_type}"
+                )
+            except Exception:
+                pass  # Don't fail the main operation if versioning fails
+
     finally:
         conn.close()
