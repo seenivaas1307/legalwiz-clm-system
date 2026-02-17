@@ -16,7 +16,13 @@ from neo4j_routes import router as neo4j_routes
 from parameters_routes import router as parameters_router
 from contract_generation_routes import router as generation_router
 
-app = FastAPI(title="LegalWiz CLM API", version="1.0.0")
+# AI Feature Routes (Graph RAG)
+from recommendation_routes import router as recommendation_router
+from customization_routes import router as customization_router
+from risk_routes import router as risk_router
+from chatbot_routes import router as chatbot_router
+
+app = FastAPI(title="LegalWiz CLM API", version="2.0.0", description="Contract Lifecycle Management with Graph RAG AI")
 
 # CORS for React frontend
 app.add_middleware(
@@ -27,11 +33,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# Core Routes
 app.include_router(party_routes)
 app.include_router(neo4j_routes)
 app.include_router(parameters_router)
 app.include_router(generation_router)
+
+# AI Feature Routes (Graph RAG)
+app.include_router(recommendation_router)
+app.include_router(customization_router)
+app.include_router(risk_router)
+app.include_router(chatbot_router)
 
 # Supabase connection pool
 # DB_CONFIG = {
@@ -247,7 +259,24 @@ async def delete_contract(contract_id: str):
 # Health check
 @app.get("/api/health")
 async def health():
-    return {"status": "healthy", "tables": "contracts ready"}
+    from llm_config import LLM_CONFIG as llm_cfg
+    llm_ready = bool(llm_cfg.get("api_key"))
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "tables": "contracts ready",
+        "ai_features": {
+            "llm_configured": llm_ready,
+            "llm_provider": llm_cfg.get("provider", "none"),
+            "llm_model": llm_cfg.get("model", "none") if llm_ready else "not configured",
+            "endpoints": {
+                "recommendations": "/api/contracts/{id}/recommendations",
+                "customization": "/api/contracts/{id}/clauses/{clause_id}/customize",
+                "risk_analysis": "/api/contracts/{id}/risk-analysis",
+                "chatbot": "/api/contracts/{id}/chat"
+            }
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn
