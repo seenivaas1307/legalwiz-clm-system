@@ -6,6 +6,7 @@ uvicorn[standard]==0.27.0
 gunicorn==21.2.0
 pydantic==2.5.3
 python-dotenv==1.0.0
+email-validator>=2.0.0
 
 # ==================== DATABASES ====================
 # PostgreSQL (Supabase)
@@ -26,6 +27,10 @@ passlib[bcrypt]==1.7.4
 requests==2.31.0
 httpx==0.26.0
 
+# LLM Providers (AI features — optional, endpoints degrade gracefully)
+google-generativeai>=0.3.0
+openai>=1.0.0
+
 # Document Generation (Step 6)
 python-docx==1.1.0
 fpdf2>=2.8.0
@@ -41,7 +46,7 @@ python-dateutil==2.8.2
 # Testing
 pytest==7.4.4
 pytest-asyncio==0.21.1
-httpx==0.26.0  # For TestClient
+# httpx already listed above
 
 # Code Quality
 black==24.1.1
