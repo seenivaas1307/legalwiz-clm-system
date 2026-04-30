@@ -43,7 +43,8 @@ def _get_contract_data(contract_id: str) -> dict:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, title, contract_type, jurisdiction
+                SELECT id, title, contract_type, jurisdiction,
+                       creator_signature_name, creator_signature_date
                 FROM contracts WHERE id = %s
             """, (contract_id,))
             contract = cur.fetchone()
@@ -87,6 +88,8 @@ def _get_contract_data(contract_id: str) -> dict:
         "clauses": processed,
         "is_complete": len(all_missing) == 0,
         "missing_parameters": sorted(list(all_missing)),
+        "creator_signature_name": contract.get("creator_signature_name"),
+        "creator_signature_date": contract.get("creator_signature_date"),
     }
 
 
@@ -391,7 +394,34 @@ def _build_pdf(data: dict, watermark: str = None) -> BytesIO:
         # Clause text
         pdf.set_font("Times", "", 11)
         text = clause["rendered_text"]
-        # Handle encoding
+        # Replace Unicode characters with ASCII equivalents for PDF compatibility
+        unicode_replacements = {
+            "\u2018": "'",   # left single quote
+            "\u2019": "'",   # right single quote
+            "\u201C": '"',   # left double quote
+            "\u201D": '"',   # right double quote
+            "\u2013": "-",   # en dash
+            "\u2014": "--",  # em dash
+            "\u2026": "...", # ellipsis
+            "\u00A0": " ",   # non-breaking space
+            "\u2022": "*",   # bullet
+            "\u00B7": "*",   # middle dot
+            "\u2010": "-",   # hyphen
+            "\u2011": "-",   # non-breaking hyphen
+            "\u2012": "-",   # figure dash
+            "\u00AB": '"',   # left guillemet
+            "\u00BB": '"',   # right guillemet
+            "\u201A": ",",   # single low quote
+            "\u201E": '"',   # double low quote
+            "\u2032": "'",   # prime
+            "\u2033": '"',   # double prime
+            "\u00A9": "(c)", # copyright
+            "\u00AE": "(R)", # registered
+            "\u2122": "(TM)",# trademark
+        }
+        for uc, ascii_eq in unicode_replacements.items():
+            text = text.replace(uc, ascii_eq)
+        # Handle any remaining non-Latin-1 characters
         text = text.encode("latin-1", "replace").decode("latin-1")
         pdf.multi_cell(0, 6, text)
         pdf.ln(4)
@@ -407,15 +437,27 @@ def _build_pdf(data: dict, watermark: str = None) -> BytesIO:
     y_sig = pdf.get_y()
     pdf.set_font("Helvetica", "", 10)
 
-    # Left signature
+    # Get creator signature from contract data
+    creator_sig_name = data.get("creator_signature_name")
+    creator_sig_date = data.get("creator_signature_date")
+
+    # Left signature (Party A / Creator)
     pdf.set_xy(20, y_sig)
-    pdf.cell(80, 6, "_________________________", 0, 1)
+    if creator_sig_name:
+        pdf.set_font("Times", "I", 14)
+        pdf.cell(80, 8, creator_sig_name, 0, 1)
+        pdf.set_font("Helvetica", "", 10)
+    else:
+        pdf.cell(80, 6, "_________________________", 0, 1)
     pdf.set_x(20)
     pdf.cell(80, 6, "Authorized Signatory (Party A)", 0, 1)
     pdf.set_x(20)
-    pdf.cell(80, 6, "Date: _______________", 0, 1)
+    if creator_sig_date:
+        pdf.cell(80, 6, f"Date: {creator_sig_date}", 0, 1)
+    else:
+        pdf.cell(80, 6, "Date: _______________", 0, 1)
 
-    # Right signature
+    # Right signature (Party B)
     pdf.set_xy(pdf.w - 100, y_sig)
     pdf.cell(80, 6, "_________________________", 0, 1)
     pdf.set_xy(pdf.w - 100, y_sig + 6)

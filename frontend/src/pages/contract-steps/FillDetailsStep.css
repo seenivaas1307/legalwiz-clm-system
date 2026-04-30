@@ -1,0 +1,293 @@
+/* FillDetailsStep.css */
+
+.fill-step { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+.fill-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.fill-toolbar__left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fill-toolbar__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.fill-toolbar__heading svg { color: var(--accent-action); }
+
+.fill-toolbar__sub {
+  font-size: 0.78rem;
+  color: var(--ink-tertiary);
+}
+
+.fill-toolbar__actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+/* ── Progress bar ──────────────────────────────────────────────────────── */
+.fill-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.fill-progress__bar {
+  flex: 1;
+  height: 6px;
+  background: var(--paper-inset);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fill-progress__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-action),
+    var(--fn-success)
+  );
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 4px;
+}
+
+.fill-progress__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.fill-progress__pct {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-action);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ── Auto-fill summary strip ────────────────────────────────────────────── */
+.fill-autofill-strip {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.fill-counter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.fill-counter--auto     { background: var(--fn-info-light);    color: var(--fn-info);    border-color: hsl(215, 55%, 82%); }
+.fill-counter--default  { background: var(--fn-success-light); color: var(--fn-success); border-color: hsl(152, 40%, 78%); }
+.fill-counter--cascade  { background: var(--fn-warning-light); color: hsl(38,60%,28%);  border-color: hsl(38, 70%, 78%); }
+.fill-counter--user     { background: var(--paper-secondary);  color: var(--ink-secondary); border-color: var(--border-hairline); }
+.fill-counter--missing  { background: var(--fn-danger-light);  color: var(--fn-danger);  border-color: hsl(0, 55%, 80%); }
+
+/* ── Group section nav (clickable tabs) ──────────────────────────────────── */
+.fill-group-nav {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-hairline);
+  padding-bottom: var(--sp-2);
+}
+
+.fill-group-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--paper-elevated);
+  color: var(--ink-secondary);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.fill-group-btn:hover {
+  background: var(--paper-secondary);
+  color: var(--ink-primary);
+  border-color: var(--border-medium);
+}
+
+.fill-group-btn--active {
+  background: var(--accent-action-light);
+  border-color: var(--accent-action);
+  color: var(--accent-action);
+  font-weight: 600;
+}
+
+.fill-group-btn__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--paper-inset);
+  color: var(--ink-tertiary);
+}
+
+.fill-group-btn--active .fill-group-btn__count {
+  background: color-mix(in srgb, var(--accent-action) 18%, transparent);
+  color: var(--accent-action);
+}
+
+.fill-group-btn--done { opacity: 0.6; }
+.fill-group-btn--done::after {
+  content: '✓';
+  font-size: 0.65rem;
+  color: var(--fn-success);
+}
+
+/* ── Category heading ────────────────────────────────────────────────────── */
+.fill-category-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.fill-category-heading__left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.fill-category-badge {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-weight: 600;
+  background: var(--paper-inset);
+  color: var(--ink-tertiary);
+}
+
+.fill-category-badge--complete {
+  background: var(--fn-success-light);
+  color: var(--fn-success);
+}
+
+.fill-all-auto-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: var(--fn-success-light);
+  color: var(--fn-success);
+  font-weight: 600;
+}
+
+/* ── Parameter field wrapper ─────────────────────────────────────────────── */
+.fill-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.fill-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.fill-field[title] {
+  cursor: help;
+}
+
+.fill-field[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  top: -4px;
+  left: 0;
+  transform: translateY(-100%);
+  background: var(--ink-primary);
+  color: var(--ink-inverse);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  max-width: 300px;
+  white-space: normal;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: var(--shadow-md);
+  animation: fadeIn 150ms ease;
+}
+
+/* Provenance badge row below the input */
+.fill-field__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 18px;
+}
+
+/* Cascade spinner overlay on the field */
+.fill-field--cascading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Required asterisk glow on unfilled required field */
+.fill-field--required-unfilled label::after {
+  content: ' *';
+  color: var(--fn-danger);
+}
+
+/* ── Save / Validate banner ──────────────────────────────────────────────── */
+.fill-validation {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  animation: fadeIn 250ms ease;
+}
+
+.fill-validation--valid {
+  background: var(--fn-success-light);
+  border: 1px solid hsl(152, 40%, 78%);
+  color: var(--fn-success);
+}
+
+.fill-validation--invalid {
+  background: var(--fn-danger-light);
+  border: 1px solid hsl(0, 55%, 80%);
+  color: var(--fn-danger);
+}
+
+.fill-validation svg { flex-shrink: 0; margin-top: 1px; }

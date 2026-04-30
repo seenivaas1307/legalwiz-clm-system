@@ -1,0 +1,85 @@
+.export-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.export-section {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--sp-5);
+}
+
+.export-section h3 { margin-bottom: var(--sp-2); }
+.export-section > p {
+  font-size: 0.875rem;
+  color: var(--ink-tertiary);
+  margin-bottom: var(--sp-5);
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.export-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--paper-primary);
+}
+
+.export-card__icon {
+  color: var(--ink-ghost);
+  flex-shrink: 0;
+}
+
+.export-card__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-card__format {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink-primary);
+  font-family: var(--font-mono);
+}
+
+.export-card__desc {
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+}
+
+.signing-status {
+  margin-top: var(--sp-5);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--paper-inset);
+}
+
+.signing-status h4 { margin-bottom: var(--sp-4); }
+
+.signing-status__grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.signing-field { display: flex; flex-direction: column; gap: 2px; }
+.signing-field__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+}
+.signing-field__value { font-size: 0.875rem; color: var(--ink-primary); }

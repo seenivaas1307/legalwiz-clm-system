@@ -1,0 +1,21 @@
+.topbar {
+  height: var(--topbar-height);
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-7);
+  background: var(--paper-elevated);
+  flex-shrink: 0;
+}
+
+.topbar__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.topbar__user {
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+}

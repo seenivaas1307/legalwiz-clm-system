@@ -1,0 +1,201 @@
+/* PartiesStep.css */
+
+.parties-step { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* ── Top action bar ─────────────────────────────────────────────────────── */
+.parties-step__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.parties-step__bar-left { display: flex; align-items: center; gap: var(--sp-3); }
+
+.parties-step__heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.parties-step__heading svg { color: var(--accent-action); }
+
+/* ── Saved party picker (dropdown strip) ────────────────────────────────── */
+.saved-party-strip {
+  background: var(--paper-secondary);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.saved-party-strip__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.saved-party-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  flex: 1;
+}
+
+.saved-party-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: 100px;
+  font-size: 0.75rem;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.saved-party-chip:hover {
+  background: var(--accent-action-light);
+  border-color: var(--accent-action);
+  color: var(--accent-action);
+}
+
+.saved-party-chip svg { flex-shrink: 0; }
+
+/* ── Party card grid ────────────────────────────────────────────────────── */
+.parties-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-4);
+}
+
+/* ── Single party card ──────────────────────────────────────────────────── */
+.party-card {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.party-card:hover { box-shadow: var(--shadow-sm); border-color: var(--border-medium); }
+
+.party-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.party-card__role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.065em;
+  color: var(--accent-action);
+  background: var(--accent-action-light);
+  padding: 3px 8px;
+  border-radius: 100px;
+}
+
+.party-card__actions { display: flex; gap: var(--sp-1); }
+
+.party-card__name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  line-height: 1.3;
+}
+
+.party-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.party-card__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--ink-tertiary);
+}
+
+.party-card__meta-item svg { flex-shrink: 0; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.parties-empty {
+  border: 2px dashed var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-7) var(--sp-5);
+  text-align: center;
+  color: var(--ink-tertiary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.parties-empty p { font-size: 0.875rem; max-width: 320px; }
+
+/* ── Auto-fill result banner ─────────────────────────────────────────────── */
+.autofill-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--fn-success-light);
+  border: 1px solid var(--fn-success);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--fn-success);
+  animation: fadeIn 300ms ease;
+}
+
+.autofill-banner svg { flex-shrink: 0; }
+
+/* ── Org import notice ───────────────────────────────────────────────────── */
+.org-import-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--fn-info-light);
+  border: 1px solid var(--fn-info);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--fn-info);
+}
+
+.org-import-notice svg { flex-shrink: 0; }
+
+/* ── Modal form overrides ─────────────────────────────────────────────────── */
+.party-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.party-form .form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}

@@ -1,0 +1,118 @@
+/* SetupStep.css */
+
+.setup-step { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* ── Card shell ─────────────────────────────────────────────────────────── */
+.setup-card {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+}
+
+.setup-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.setup-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.setup-card__title svg { color: var(--accent-action); }
+
+/* ── Info grid ──────────────────────────────────────────────────────────── */
+.setup-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-4) var(--sp-5);
+}
+
+.setup-field { display: flex; flex-direction: column; gap: 4px; }
+
+.setup-field__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+}
+
+.setup-field__value {
+  font-size: 0.875rem;
+  color: var(--ink-primary);
+}
+
+/* ── Edit form ──────────────────────────────────────────────────────────── */
+.setup-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.setup-edit-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────── */
+.setup-tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: 2px; }
+
+.setup-tag {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  background: var(--paper-inset);
+  border: 1px solid var(--border-hairline);
+  border-radius: 100px;
+  color: var(--ink-secondary);
+}
+
+/* ── Readiness strip ────────────────────────────────────────────────────── */
+.setup-readiness {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.setup-readiness__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 100px;
+}
+
+.setup-readiness__num {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: var(--font-body);
+  color: var(--ink-primary);
+  line-height: 1;
+}
+
+.setup-readiness__label {
+  font-size: 0.75rem;
+  color: var(--ink-tertiary);
+  font-weight: 500;
+}
+
+.setup-readiness__status--ready    { color: var(--fn-success); }
+.setup-readiness__status--pending  { color: var(--fn-warning); }
+
+/* ── Action hint ─────────────────────────────────────────────────────────── */
+.setup-hint {
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--border-medium);
+}

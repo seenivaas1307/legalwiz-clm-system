@@ -1,0 +1,10 @@
+.templates-page { display: flex; flex-direction: column; gap: var(--sp-5); }
+.templates-header h1 { margin-bottom: var(--sp-2); }
+.templates-header p { font-size: 0.875rem; color: var(--ink-tertiary); margin: 0; }
+.templates-table {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.table-title { font-weight: 500; }

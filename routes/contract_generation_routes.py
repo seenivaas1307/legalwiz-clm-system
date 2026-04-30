@@ -1,5 +1,6 @@
 # contract_generation_routes.py - Step 5: Contract Generation
 import html as html_mod
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -76,8 +77,7 @@ def get_active_clauses_with_text(contract_id: str) -> List[Dict]:
     clause_ids = [c["clause_id"] for c in clauses]
     driver = get_neo4j_driver()
     
-    try:
-        with driver.session() as session:
+    with driver.session() as session:
             result = session.run("""
                 MATCH (c:Clause)
                 WHERE c.id IN $clause_ids
@@ -85,8 +85,6 @@ def get_active_clauses_with_text(contract_id: str) -> List[Dict]:
             """, {"clause_ids": clause_ids})
             
             neo4j_texts = {rec["clause_id"]: rec["raw_text"] for rec in result}
-    finally:
-        driver.close()
     
     # Merge data
     for clause in clauses:
@@ -163,8 +161,7 @@ def get_parameter_names_map(contract_id: str) -> Dict[str, str]:
     
     # Get parameter names from Neo4j
     driver = get_neo4j_driver()
-    try:
-        with driver.session() as session:
+    with driver.session() as session:
             result = session.run("""
                 MATCH (c:Clause)-[:CONTAINS_PARAM]->(p:Parameter)
                 WHERE c.id IN $clause_ids
@@ -172,16 +169,190 @@ def get_parameter_names_map(contract_id: str) -> Dict[str, str]:
             """, {"clause_ids": clause_ids})
             
             return {rec["parameter_id"]: rec["parameter_name"] for rec in result}
-    finally:
-        driver.close()
+
+
+def format_clause_structure(text: str) -> str:
+    """
+    Post-process clause text to add numbered sub-sections.
+    
+    Detects inline section labels like "Definitions. ...", "Exclusions. ...",
+    "Permitted Disclosures to Representatives. ..." and converts them to
+    numbered sub-headings for better readability.
+    
+    Only applies to dense paragraph-style clauses (India format).
+    Already-structured clauses (US format with "1. HEADING") pass through unchanged.
+    """
+    # Skip if already structured (has numbered sub-sections like "1. " or "1) ")
+    if re.search(r'^\d+[\.\)]\s+[A-Z]', text, re.MULTILINE):
+        return text
+    
+    # Skip short clauses (< 300 chars) — they don't need sub-sections
+    if len(text) < 300:
+        return text
+
+    # Pattern: Title-case phrase (allowing lowercase connectors) followed by '. '
+    # Matches: "Definitions.", "Confidentiality Obligations.", "Permitted Disclosures to Representatives."
+    section_pattern = re.compile(
+        r'(?:^|(?<=\. )|(?<=\.\n)|(?<=\n))'  # start, after '. ', after '.\n', or after '\n'
+        r'((?:[A-Z][a-zA-Z/\-]*)'        # First capitalized word
+        r'(?:\s+(?:[a-z]+\s+)*'           # optional lowercase words (to, of, and...)
+        r'[A-Z][a-zA-Z/\-]*)*)'           # followed by another capitalized word
+        r'\.\s'
+    )
+    
+    matches = list(section_pattern.finditer(text))
+    
+    # Filter out false positives — keep only labels that look like real headings
+    skip_starts = {'The', 'Each', 'This', 'Any', 'All', 'Such', 'Where', 'Upon',
+                   'During', 'Neither', 'Nothing', 'Subject', 'Except', 'Unless',
+                   'Notwithstanding', 'If', 'For', 'In', 'No Party', 'Both',
+                   'To the', 'A Party', 'Either'}
+    
+    valid_matches = []
+    for m in matches:
+        label = m.group(1).strip()
+        if not label or len(label) < 3:
+            continue
+        # Skip common sentence starters
+        if any(label.startswith(s) for s in skip_starts):
+            continue
+        # Must be short enough to be a heading (not a full sentence)
+        if len(label.split()) > 6:
+            continue
+        valid_matches.append(m)
+    
+    # Need at least 2 sections to justify formatting
+    if len(valid_matches) < 2:
+        return text
+    
+    # Build the formatted text with numbered sub-sections
+    result_parts = []
+    
+    # Text before the first section label
+    first_start = valid_matches[0].start()
+    preamble = text[:first_start].strip()
+    if preamble:
+        result_parts.append(preamble)
+        result_parts.append("")
+    
+    for i, match in enumerate(valid_matches):
+        label = match.group(1).strip().upper()
+        content_start = match.end()
+        content_end = valid_matches[i + 1].start() if i + 1 < len(valid_matches) else len(text)
+        content = text[content_start:content_end].strip()
+        
+        result_parts.append(f"{i + 1}. {label}")
+        result_parts.append("")
+        result_parts.append(content)
+        result_parts.append("")
+    
+    return "\n".join(result_parts).strip()
+
+
+# LLM-based clause structuring — BATCHED for token efficiency
+_STRUCTURE_PROMPT = """You are a legal document formatter. Restructure each clause below with numbered sub-sections and short ALL-CAPS headings.
+
+RULES:
+1. Do NOT change any words, legal terms, values, or meaning. Only add structure.
+2. Add numbered sub-headings like "1. FEES", "2. INVOICING", "3. TAXES"
+3. Each sub-section should cover one logical topic.
+4. Keep ALL original text — do not remove, summarize, or rephrase anything.
+5. NEVER use the clause name itself as the first sub-heading. The clause title is already shown separately. Start with a meaningful sub-topic instead.
+   BAD:  "1. INDEMNIFICATION  Each Party will indemnify..."
+   GOOD: "1. OBLIGATIONS  Each Party will indemnify..."
+   BAD:  "1. TERMINATION FOR CAUSE  Either Party may terminate..."
+   GOOD: "1. BREACH AND CURE  Either Party may terminate..."
+   BAD:  "1. FORCE MAJEURE  Neither Party will be liable..."
+   GOOD: "1. SCOPE  Neither Party will be liable..."
+6. Return the result as a JSON object mapping clause_type to formatted text.
+
+CLAUSES TO FORMAT:
+{clauses_json}
+
+Respond ONLY with valid JSON:
+{{"clause_type_1": "formatted text...", "clause_type_2": "formatted text..."}}"""
+
+_format_cache: dict = {}
+
+
+def format_clauses_batch_llm(clauses_to_format: list) -> dict:
+    """
+    Batch-format multiple clauses in LLM calls.
+    Splits into batches of 3-4 clauses to stay within token limits.
+    Returns {clause_type: formatted_text} dict.
+    """
+    if not clauses_to_format:
+        return {}
+
+    try:
+        from graph_rag_engine import llm_client
+        if not llm_client.is_configured():
+            return {}
+
+        all_formatted = {}
+        # Sort by length — shorter clauses first (more likely to fit in a batch)
+        clauses_to_format.sort(key=lambda x: len(x[1]))
+        batch_size = 2  # Small batches to stay within 4096 output tokens
+
+        for i in range(0, len(clauses_to_format), batch_size):
+            batch = clauses_to_format[i:i + batch_size]
+            clauses_input = {}
+            for ct, text in batch:
+                clauses_input[ct] = text[:2000] if len(text) > 2000 else text
+
+            prompt = _STRUCTURE_PROMPT.format(clauses_json=json.dumps(clauses_input, indent=1))
+
+            try:
+                result = llm_client.generate(prompt, "You are a legal document formatter.")
+
+                for ct, fmt_text in result.items():
+                    if isinstance(fmt_text, str) and len(fmt_text) > 100:
+                        # Add blank line BETWEEN sections (before "2.", "3.", etc.)
+                        fmt_text = re.sub(
+                            r'([.;,\w\)\"])\s*\n*\s*(\d+\.\s+[A-Z][A-Z])',
+                            r'\1\n\n\2',
+                            fmt_text
+                        )
+                        # Ensure blank line after heading line (heading = line starting with "N. ALL CAPS")
+                        lines = fmt_text.split('\n')
+                        spaced_lines = []
+                        for j, line in enumerate(lines):
+                            spaced_lines.append(line)
+                            # If this line is a heading and next line is content (not empty, not another heading)
+                            if (re.match(r'^\d+\.\s+[A-Z][A-Z\s&/,\'\-]+', line.strip()) 
+                                and j + 1 < len(lines) 
+                                and lines[j + 1].strip() 
+                                and not re.match(r'^\d+\.', lines[j + 1].strip())):
+                                spaced_lines.append('')  # Add blank line
+                        fmt_text = '\n'.join(spaced_lines)
+                        _format_cache[ct] = fmt_text
+                        all_formatted[ct] = fmt_text
+            except Exception as e:
+                import logging
+                logging.getLogger("legalwiz").warning(f"Batch {i//batch_size + 1} formatting failed: {e}")
+                continue
+
+        return all_formatted
+
+    except Exception as e:
+        import logging
+        logging.getLogger("legalwiz").warning(f"Batch LLM formatting failed: {e}")
+        return {}
+
+
+def format_clause_with_llm(text: str, clause_type: str) -> str:
+    """Check cache for a previously batch-formatted clause."""
+    return _format_cache.get(clause_type, text)
 
 
 def replace_parameters(text: str, param_values: Dict[str, str], param_names: Dict[str, str]) -> tuple:
     """
-    Replace parameter placeholders with actual values
+    Replace parameter placeholders with actual values.
+    Handles both {{PLACEHOLDER}} and [PLACEHOLDER] formats.
+    Also strips leftover square brackets around substituted values like [30] → 30.
     
     Args:
-        text: Template text with {{PLACEHOLDERS}}
+        text: Template text with {{PLACEHOLDERS}} or [PLACEHOLDERS]
         param_values: {parameter_id: value}
         param_names: {parameter_id: parameter_name}
     
@@ -191,24 +362,70 @@ def replace_parameters(text: str, param_values: Dict[str, str], param_names: Dic
     rendered_text = text
     missing = []
     
-    # Find all placeholders in format {{PARAM_NAME}}
+    # Build reverse map: bare_name → value
+    bare_to_value = {}
+    for pid, pname in param_names.items():
+        if pid in param_values:
+            bare = pname.strip("{}")
+            bare_to_value[bare] = param_values[pid]
+            bare_to_value[pname] = param_values[pid]
+    # Also add orphan parameter values (ORPHAN_XXX → {{XXX}})
+    for pid, val in param_values.items():
+        if pid.startswith("ORPHAN_"):
+            bare = pid[7:]
+            bare_to_value[bare] = val
+            bare_to_value[f"{{{{{bare}}}}}"] = val
+
+    # --- Pass 1: Replace {{PLACEHOLDER}} format ---
     placeholders = re.findall(r'\{\{([A-Z_0-9]+)\}\}', text)
     
     for placeholder in set(placeholders):
         placeholder_full = f"{{{{{placeholder}}}}}"
+        value = bare_to_value.get(placeholder) or bare_to_value.get(placeholder_full)
         
-        # Find parameter_id that has this placeholder name
-        param_id = None
-        for pid, pname in param_names.items():
-            if pname == placeholder_full:
-                param_id = pid
-                break
+        if not value:
+            # Fall back to param_id → param_name lookup
+            for pid, pname in param_names.items():
+                if pname == placeholder_full and pid in param_values:
+                    value = param_values[pid]
+                    break
         
-        # Replace if value exists
-        if param_id and param_id in param_values:
-            rendered_text = rendered_text.replace(placeholder_full, param_values[param_id])
+        if value:
+            rendered_text = rendered_text.replace(placeholder_full, value)
         else:
             missing.append(placeholder_full)
+
+    # --- Pass 2: Map known bracket-style aliases to parameter values ---
+    # Some clause templates use [LABEL] instead of {{PARAM_NAME}}
+    BRACKET_ALIASES = {
+        "EFFECTIVE DATE": "EFFECTIVE_DATE",
+        "SERVICE PROVIDER": "PARTY_A_NAME",
+        "CUSTOMER": "PARTY_B_NAME",
+        "CLIENT": "PARTY_B_NAME",
+        "VENDOR": "PARTY_A_NAME",
+        "PROVIDER": "PARTY_A_NAME",
+        "START DATE": "START_DATE",
+        "END DATE": "TERM_END_DATE",
+        "NOTICE PERIOD": "NOTICE_PERIOD",
+    }
+    for bracket_label, param_bare in BRACKET_ALIASES.items():
+        bracket_full = f"[{bracket_label}]"
+        if bracket_full in rendered_text:
+            value = bare_to_value.get(param_bare)
+            if value:
+                rendered_text = rendered_text.replace(bracket_full, value)
+
+    # --- Pass 3: Strip square brackets around already-substituted values ---
+    # e.g. [30] → 30, [Monthly] → Monthly, [15 days] → 15 days
+    # Only strip brackets that contain short non-placeholder text (already resolved)
+    def strip_resolved_brackets(match):
+        inner = match.group(1)
+        # Keep brackets if it looks like an unresolved placeholder (ALL CAPS with spaces)
+        if re.match(r'^[A-Z][A-Z _/]+$', inner) and len(inner) > 3:
+            return match.group(0)  # Keep as-is
+        return inner
+    
+    rendered_text = re.sub(r'\[([^\[\]]{1,60})\]', strip_resolved_brackets, rendered_text)
     
     return rendered_text, missing
 
@@ -296,6 +513,7 @@ async def generate_contract(contract_id: str, user=Depends(get_current_user)):
     # Process each clause
     processed_clauses = []
     all_missing_params = set()
+    clauses_needing_llm = []  # Collect for batch LLM formatting
     
     for clause in clauses:
         rendered_text, missing = replace_parameters(
@@ -304,6 +522,24 @@ async def generate_contract(contract_id: str, user=Depends(get_current_user)):
             param_names
         )
         
+        # Strip leading ALL-CAPS label
+        stripped = re.sub(r'^[A-Z][A-Z &/,\'-]+\s*\n+', '', rendered_text.lstrip())
+        
+        # Try regex-based formatting first
+        formatted = format_clause_structure(stripped)
+        
+        # Check if it needs LLM formatting
+        has_numbered_sections = bool(re.search(r'^\d+[\.\)]\s+[A-Z]', formatted, re.MULTILINE))
+        needs_llm = not has_numbered_sections and len(stripped) > 500
+        
+        # Check cache first
+        if needs_llm and clause["clause_type"] in _format_cache:
+            formatted = _format_cache[clause["clause_type"]]
+            needs_llm = False
+        
+        if needs_llm:
+            clauses_needing_llm.append((clause["clause_type"], stripped))
+        
         processed_clauses.append({
             "id": clause["id"],
             "clause_id": clause["clause_id"],
@@ -311,11 +547,20 @@ async def generate_contract(contract_id: str, user=Depends(get_current_user)):
             "variant": clause["variant"],
             "sequence": clause["sequence"],
             "raw_text": clause["raw_text"],
-            "rendered_text": rendered_text,
-            "missing_parameters": missing
+            "rendered_text": formatted,
+            "missing_parameters": missing,
+            "_needs_llm": needs_llm,
         })
         
         all_missing_params.update(missing)
+    
+    # Batch LLM formatting — single call for all unformatted clauses
+    if clauses_needing_llm:
+        batch_results = format_clauses_batch_llm(clauses_needing_llm)
+        for pc in processed_clauses:
+            if pc.get("_needs_llm") and pc["clause_type"] in batch_results:
+                pc["rendered_text"] = batch_results[pc["clause_type"]]
+            pc.pop("_needs_llm", None)
     
     # Generate full document
     full_text = format_contract_text(
@@ -420,9 +665,7 @@ async def preview_contract_html(contract_id: str, user=Depends(get_current_user)
 @router.get("/{contract_id}/status")
 async def get_contract_status(contract_id: str, user=Depends(get_current_user)):
     """
-    Step 5.4: Get contract generation status
-    
-    Check if contract is ready for generation
+    Contract readiness status for the Review step pre-flight checklist.
     """
     conn = get_db()
     try:
@@ -440,34 +683,42 @@ async def get_contract_status(contract_id: str, user=Depends(get_current_user)):
             """, (contract_id,))
             clause_count = cur.fetchone()["clause_count"]
             
-            # Check parameters
+            # Check filled parameters
             cur.execute("""
                 SELECT COUNT(*) as param_count
                 FROM contract_parameters
                 WHERE contract_id = %s
+                  AND (value_text IS NOT NULL AND value_text != '')
             """, (contract_id,))
-            param_count = cur.fetchone()["param_count"]
+            filled_count = cur.fetchone()["param_count"]
+
+            # Check parties
+            cur.execute("""
+                SELECT COUNT(*) as party_count
+                FROM contract_parties
+                WHERE contract_id = %s
+            """, (contract_id,))
+            parties_count = cur.fetchone()["party_count"]
     finally:
         conn.close()
-    
-    # is_ready requires clauses AND that all required parameters are filled
-    # (param_count > 0 alone is a false positive if only 1 of N is set)
-    is_ready = clause_count > 0 and param_count > 0
-    if is_ready:
-        # Double-check by generating and seeing if any params are missing
-        try:
-            param_values = get_parameter_values(contract_id)
-            param_names = get_parameter_names_map(contract_id)
-            total_required = len(param_names)
-            filled = sum(1 for pid in param_names if pid in param_values)
-            is_ready = filled >= total_required and total_required > 0
-        except Exception:
-            is_ready = False
+
+    # Get total parameters (from Neo4j + orphans)
+    total_params = 0
+    try:
+        from parameters_routes import fetch_parameters_for_active_clauses
+        all_params = fetch_parameters_for_active_clauses(contract_id)
+        total_params = len(all_params)
+    except Exception:
+        pass
+
+    is_ready = clause_count > 0 and filled_count > 0 and filled_count >= total_params
     
     return {
         "contract_id": contract_id,
         "is_ready": is_ready,
         "active_clauses_count": clause_count,
-        "filled_parameters_count": param_count,
-        "next_step": "Generate contract" if is_ready else "Complete Steps 3 & 4 first"
+        "filled_parameters": filled_count,
+        "total_parameters": total_params,
+        "parties_count": parties_count,
+        "next_step": "Generate contract" if is_ready else "Complete Steps 3 & 4 first",
     }

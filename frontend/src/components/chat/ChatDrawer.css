@@ -1,0 +1,88 @@
+/* ChatDrawer.css — full styled implementation */
+
+/* ── Backdrop ─────────────────────────────────────────────────────────── */
+.chat-drawer__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.22);
+  z-index: 199;
+  animation: fadeIn 0.18s ease;
+  backdrop-filter: blur(2px);
+}
+
+/* ── Drawer shell ─────────────────────────────────────────────────────── */
+.chat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100vw;
+  background: var(--paper-primary);
+  border-left: 1px solid var(--border-hairline);
+  box-shadow: -4px 0 32px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.chat-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--paper-elevated);
+  flex-shrink: 0;
+}
+
+.chat-drawer__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.chat-drawer__title::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fn-success);
+  box-shadow: 0 0 0 3px var(--fn-success-light);
+}
+
+.chat-drawer__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-tertiary);
+  display: flex;
+  align-items: center;
+  padding: var(--sp-1);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.chat-drawer__close:hover {
+  color: var(--ink-primary);
+  background: var(--paper-secondary);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+.chat-drawer__body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

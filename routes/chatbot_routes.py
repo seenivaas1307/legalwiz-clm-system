@@ -126,9 +126,10 @@ def _format_clause_context(clauses: List[Dict]) -> str:
     
     lines = []
     for c in clauses:
-        text_preview = c.get("raw_text", "")
-        if len(text_preview) > 500:
-            text_preview = text_preview[:500] + "..."
+        # Prefer rendered text (with parameters filled) over raw text
+        text_preview = c.get("rendered_text") or c.get("raw_text", "")
+        if len(text_preview) > 800:
+            text_preview = text_preview[:800] + "..."
         lines.append(
             f"### {c.get('clause_type_name', c.get('clause_type', 'Unknown'))} "
             f"({c['variant']} variant, risk: {c['risk_level']})\n"
@@ -138,12 +139,18 @@ def _format_clause_context(clauses: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def _format_params(param_values: Dict[str, str]) -> str:
-    """Format parameter values for LLM context."""
+def _format_params(param_values: Dict[str, str], param_names: Dict[str, str] = None) -> str:
+    """Format parameter values for LLM context with human-readable names."""
     if not param_values:
         return "No parameter values set yet."
     
-    lines = [f"- {pid}: {val}" for pid, val in param_values.items()]
+    lines = []
+    for pid, val in param_values.items():
+        # Use the placeholder name if available, otherwise the ID
+        display_name = pid
+        if param_names and pid in param_names:
+            display_name = param_names[pid].strip("{}")
+        lines.append(f"- {display_name}: {val}")
     return "\n".join(lines)
 
 
@@ -207,6 +214,36 @@ async def chat(contract_id: str, request: ChatMessage, user=Depends(get_current_
     
     # --- GRAPH RETRIEVAL ---
     qa_context = retriever.get_qa_context(contract_id, active_clause_ids, request.message)
+
+    # Enrich clauses with customized/overridden text from Supabase
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT clause_id, overridden_text
+                FROM contract_clauses
+                WHERE contract_id = %s AND is_active = true AND overridden_text IS NOT NULL
+            """, (contract_id,))
+            overrides = {r["clause_id"]: r["overridden_text"] for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    # Build param_id → placeholder_name map, then placeholder_name → value map
+    # so we can replace {{PARTY_A_NAME}} (not {{P_156}}) in clause text
+    from contract_generation_routes import get_parameter_names_map, get_parameter_values, replace_parameters
+    param_names_map = get_parameter_names_map(contract_id)   # {P_156: "{{PARTY_A_NAME}}", ...}
+    full_param_values = get_parameter_values(contract_id)     # {P_156: "Karthi", ...}
+
+    # Replace raw_text with overridden_text where available, and render parameters
+    for clause in qa_context["clauses"]:
+        cid = clause.get("clause_id")
+        if cid in overrides:
+            clause["raw_text"] = overrides[cid]
+        # Render using the same pipeline as the preview
+        text = clause.get("raw_text", "")
+        if text:
+            rendered, _ = replace_parameters(text, full_param_values, param_names_map)
+            clause["rendered_text"] = rendered
     
     # Get chat history (BEFORE saving user message, so LLM sees prior context only)
     history = _get_recent_history(contract_id)
@@ -217,7 +254,7 @@ async def chat(contract_id: str, request: ChatMessage, user=Depends(get_current_
         jurisdiction=contract["jurisdiction"],
         contract_status=contract.get("status", "draft"),
         relevant_clauses=_format_clause_context(qa_context["clauses"]),
-        relevant_parameters=_format_params(qa_context["parameter_values"]),
+        relevant_parameters=_format_params(full_param_values, param_names_map),
         chat_history=_format_chat_history(history),
         user_message=request.message
     )

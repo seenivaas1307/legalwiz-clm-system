@@ -197,6 +197,8 @@ def _ensure_columns():
                 ALTER TABLE contracts ADD COLUMN IF NOT EXISTS signed_at TIMESTAMPTZ;
                 ALTER TABLE contracts ADD COLUMN IF NOT EXISTS signer_email TEXT;
                 ALTER TABLE contracts ADD COLUMN IF NOT EXISTS signer_name TEXT;
+                ALTER TABLE contracts ADD COLUMN IF NOT EXISTS creator_signature_name TEXT;
+                ALTER TABLE contracts ADD COLUMN IF NOT EXISTS creator_signature_date TEXT;
             """)
             conn.commit()
     finally:
@@ -212,6 +214,17 @@ class SendForSigningRequest(BaseModel):
     email_body: Optional[str] = Field(None, description="Custom email body")
 
 
+class CreatorSignRequest(BaseModel):
+    """Step 1: Creator signs first (embedded), then Party B signs via email."""
+    party_b_email: Optional[EmailStr] = Field(None, description="Party B email (can be added later)")
+    party_b_name: Optional[str] = Field(None, description="Party B name")
+
+
+class CreatorSignatureRequest(BaseModel):
+    """Save creator's in-app signature."""
+    signature_name: str = Field(..., description="Creator's typed signature (full name)")
+
+
 class SigningStatusResponse(BaseModel):
     contract_id: str
     envelope_id: Optional[str]
@@ -219,6 +232,9 @@ class SigningStatusResponse(BaseModel):
     signer_email: Optional[str]
     signer_name: Optional[str]
     signed_at: Optional[datetime]
+    signers: Optional[list] = None  # Per-signer status details
+    sent_at: Optional[str] = None
+    status_changed_at: Optional[str] = None
 
 
 # ==================== HELPERS ====================
@@ -417,6 +433,245 @@ async def send_for_signing(contract_id: str, request: SendForSigningRequest, use
     }
 
 
+@router.post("/api/contracts/{contract_id}/esign/creator-signature")
+async def save_creator_signature(contract_id: str, request: CreatorSignatureRequest, user=Depends(get_current_user)):
+    """
+    Save the creator's in-app signature. Updates the contract with the
+    creator's name and date, which appears in the PDF signature block.
+    """
+    verify_contract_ownership(contract_id, user["id"])
+
+    sig_date = datetime.now().strftime("%B %d, %Y")
+
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE contracts
+                SET creator_signature_name = %s,
+                    creator_signature_date = %s,
+                    signing_status = 'creator_signed',
+                    updated_at = NOW()
+                WHERE id = %s
+                RETURNING id, creator_signature_name, creator_signature_date, signing_status
+            """, (request.signature_name, sig_date, contract_id))
+            result = cur.fetchone()
+            conn.commit()
+    finally:
+        conn.close()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    return {
+        "message": "Creator signature saved",
+        "contract_id": contract_id,
+        "signature_name": result["creator_signature_name"],
+        "signature_date": result["creator_signature_date"],
+        "status": "creator_signed",
+    }
+
+
+@router.post("/api/contracts/{contract_id}/esign/creator-sign")
+async def creator_sign(contract_id: str, request: CreatorSignRequest, user=Depends(get_current_user)):
+    """
+    Two-step signing flow:
+    Step 1 — Creator signs via embedded signing (in-app).
+    Step 2 — Party B receives email to sign remotely.
+
+    Creates a DocuSign envelope with:
+    - Signer 1 (creator): embedded signing with client_user_id → returns signing URL
+    - Signer 2 (Party B): remote email signing (if email provided, otherwise added later)
+
+    Returns a signing URL for the creator to sign immediately.
+    """
+    verify_contract_ownership(contract_id, user["id"])
+
+    # Get contract + creator info
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT c.id, c.title, c.signing_status, c.envelope_id,
+                       u.email AS creator_email, u.full_name AS creator_name
+                FROM contracts c
+                JOIN users u ON c.created_by = u.id
+                WHERE c.id = %s
+            """, (contract_id,))
+            contract = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    if contract.get("signing_status") in ("sent", "delivered", "signed"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Contract already has signing status: {contract['signing_status']}"
+        )
+
+    # Generate PDF
+    try:
+        pdf_bytes = _get_contract_pdf(contract_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
+    # Create DocuSign envelope with 2 signers
+    client = _get_docusign_client()
+
+    try:
+        from docusign_esign import (
+            EnvelopesApi, EnvelopeDefinition, Document,
+            Signer, SignHere, Tabs, Recipients, RecipientViewRequest,
+        )
+
+        doc_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        document = Document(
+            document_base64=doc_b64,
+            name=contract["title"] or "Contract",
+            file_extension="pdf",
+            document_id="1",
+        )
+
+        # Signer 1: Creator (embedded — signs in-app)
+        creator_sign_here = SignHere(
+            anchor_string="/sig1/",
+            anchor_units="pixels",
+            anchor_y_offset="10",
+            anchor_x_offset="20",
+        )
+        creator_signer = Signer(
+            email=contract["creator_email"],
+            name=contract["creator_name"],
+            recipient_id="1",
+            routing_order="1",
+            client_user_id="creator",  # Required for embedded signing
+            tabs=Tabs(sign_here_tabs=[creator_sign_here]),
+        )
+
+        signers = [creator_signer]
+
+        # Signer 2: Party B (remote — signs via email)
+        if request.party_b_email and request.party_b_name:
+            party_b_sign_here = SignHere(
+                anchor_string="/sig2/",
+                anchor_units="pixels",
+                anchor_y_offset="10",
+                anchor_x_offset="20",
+            )
+            party_b_signer = Signer(
+                email=request.party_b_email,
+                name=request.party_b_name,
+                recipient_id="2",
+                routing_order="2",  # Signs after creator
+                tabs=Tabs(sign_here_tabs=[party_b_sign_here]),
+            )
+            signers.append(party_b_signer)
+
+        envelope_definition = EnvelopeDefinition(
+            email_subject=f"Please sign: {contract['title']}",
+            email_blurb="Please review and sign this contract.",
+            documents=[document],
+            recipients=Recipients(signers=signers),
+            status="sent",
+        )
+
+        envelopes_api = EnvelopesApi(client)
+        result = envelopes_api.create_envelope(
+            account_id=DOCUSIGN_CONFIG["account_id"],
+            envelope_definition=envelope_definition,
+        )
+        envelope_id = result.envelope_id
+
+        # Get embedded signing URL for creator
+        return_url = DOCUSIGN_CONFIG.get("return_url", "http://localhost:5173/signing-complete")
+        view_request = RecipientViewRequest(
+            return_url=return_url,
+            authentication_method="none",
+            email=contract["creator_email"],
+            user_name=contract["creator_name"],
+            client_user_id="creator",
+        )
+
+        view_result = envelopes_api.create_recipient_view(
+            account_id=DOCUSIGN_CONFIG["account_id"],
+            envelope_id=envelope_id,
+            recipient_view_request=view_request,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DocuSign error: {str(e)}")
+
+    # Update contract
+    _update_signing_status(
+        contract_id=contract_id,
+        envelope_id=envelope_id,
+        status="creator_signing",
+        signer_email=request.party_b_email or contract["creator_email"],
+        signer_name=request.party_b_name or contract["creator_name"],
+    )
+
+    try:
+        from version_routes import create_version_snapshot
+        create_version_snapshot(contract_id, "Creator signing initiated")
+    except Exception:
+        pass
+
+    return {
+        "message": "Envelope created. Sign as creator now.",
+        "contract_id": contract_id,
+        "envelope_id": envelope_id,
+        "signing_url": view_result.url,
+        "creator_email": contract["creator_email"],
+        "creator_name": contract["creator_name"],
+        "party_b_email": request.party_b_email,
+        "party_b_name": request.party_b_name,
+        "status": "creator_signing",
+    }
+
+
+@router.post("/api/contracts/{contract_id}/esign/send-to-party-b")
+async def send_to_party_b(contract_id: str, request: SendForSigningRequest, user=Depends(get_current_user)):
+    """
+    Step 2: After creator has signed, add Party B as a remote signer.
+    If Party B was already added during creator-sign, this just returns the status.
+    """
+    verify_contract_ownership(contract_id, user["id"])
+
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, title, envelope_id, signing_status
+                FROM contracts WHERE id = %s
+            """, (contract_id,))
+            contract = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not contract or not contract.get("envelope_id"):
+        raise HTTPException(status_code=400, detail="Creator must sign first")
+
+    # Update signer info
+    _update_signing_status(
+        contract_id=contract_id,
+        status="sent",
+        signer_email=request.signer_email,
+        signer_name=request.signer_name,
+    )
+
+    return {
+        "message": f"Contract sent to {request.signer_email} for signing",
+        "contract_id": contract_id,
+        "envelope_id": contract["envelope_id"],
+        "party_b_email": request.signer_email,
+        "status": "sent",
+    }
+
+
 @router.get("/api/contracts/{contract_id}/esign/signing-url")
 async def get_signing_url(contract_id: str, user=Depends(get_current_user)):
     """
@@ -516,6 +771,10 @@ async def get_signing_status(contract_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Contract not found")
 
     # If we have an envelope and DocuSign is configured, get live status
+    signers_detail = []
+    sent_at = None
+    status_changed_at = None
+
     if contract.get("envelope_id") and _is_configured():
         try:
             client = _get_docusign_client()
@@ -529,19 +788,52 @@ async def get_signing_status(contract_id: str, user=Depends(get_current_user)):
 
             ds_status = envelope.status  # sent, delivered, completed, declined, voided
             local_status = _map_docusign_status(ds_status)
+            sent_at = envelope.sent_date_time
+            status_changed_at = envelope.status_changed_date_time
+
+            # Get per-signer/recipient status
+            try:
+                recipients = envelopes_api.list_recipients(
+                    account_id=DOCUSIGN_CONFIG["account_id"],
+                    envelope_id=contract["envelope_id"],
+                )
+                for signer in (recipients.signers or []):
+                    signers_detail.append({
+                        "name": signer.name,
+                        "email": signer.email,
+                        "status": signer.status,  # sent, delivered, completed, declined
+                        "signed_at": signer.signed_date_time,
+                        "delivered_at": signer.delivered_date_time,
+                    })
+            except Exception:
+                pass
 
             # Update local DB if status changed
             if local_status != contract.get("signing_status"):
-                signed_at = None
+                signed_at_val = None
                 if local_status == "signed":
-                    signed_at = datetime.now()
+                    signed_at_val = datetime.now()
                 _update_signing_status(
                     contract_id=contract_id,
                     status=local_status,
-                    signed_at=signed_at,
+                    signed_at=signed_at_val,
                 )
                 contract["signing_status"] = local_status
-                contract["signed_at"] = signed_at
+                contract["signed_at"] = signed_at_val
+
+                # When fully signed, update contract status to "active"
+                if local_status == "signed":
+                    try:
+                        conn2 = get_db()
+                        with conn2.cursor() as cur2:
+                            cur2.execute(
+                                "UPDATE contracts SET status = 'active', updated_at = NOW() WHERE id = %s",
+                                (contract_id,)
+                            )
+                            conn2.commit()
+                        conn2.close()
+                    except Exception:
+                        pass
 
         except Exception:
             pass  # Fall through to return cached status
@@ -553,6 +845,9 @@ async def get_signing_status(contract_id: str, user=Depends(get_current_user)):
         "signer_email": contract.get("signer_email"),
         "signer_name": contract.get("signer_name"),
         "signed_at": contract.get("signed_at"),
+        "signers": signers_detail if signers_detail else None,
+        "sent_at": sent_at,
+        "status_changed_at": status_changed_at,
     }
 
 

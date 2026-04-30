@@ -1,0 +1,18 @@
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-9) var(--sp-5);
+  color: var(--ink-tertiary);
+}
+
+.loading-state__icon {
+  color: var(--ink-ghost);
+}
+
+.loading-state__text {
+  font-size: 0.875rem;
+  color: var(--ink-tertiary);
+}

@@ -65,8 +65,12 @@ def get_db():
 
 def fetch_parameters_for_active_clauses(contract_id: str) -> List[Dict]:
     """
-    Fetch parameters from Neo4j for ACTIVE clauses only
+    Fetch parameters from Neo4j for ACTIVE clauses only.
+    Also scans clause texts for orphan {{PLACEHOLDER}} patterns not tracked in Neo4j
+    and includes them as synthetic parameters so users can fill them.
     """
+    import re
+
     # Get active clause_ids from Supabase
     conn = get_db()
     try:
@@ -98,6 +102,8 @@ def fetch_parameters_for_active_clauses(contract_id: str) -> List[Dict]:
       p.data_type AS data_type,
       p.is_required AS is_required,
       p.created_at AS created_at,
+      p.description AS description,
+      p.example_value AS example_value,
       collect(DISTINCT c.id) AS used_in_clauses
     ORDER BY 
       CASE WHEN p.is_required = true THEN 1 ELSE 2 END,
@@ -114,15 +120,150 @@ def fetch_parameters_for_active_clauses(contract_id: str) -> List[Dict]:
                 "data_type": record["data_type"],
                 "is_required": record["is_required"],
                 "created_at": str(record["created_at"]) if record["created_at"] else None,
+                "description": record.get("description") or "",
+                "example_value": record.get("example_value") or "",
                 "used_in_clauses": list(record["used_in_clauses"])
             })
-        return parameters
+
+    # --- Detect orphan placeholders in clause texts not tracked in Neo4j ---
+    known_names = {p["name"] for p in parameters}  # e.g. {{PARTY_A_NAME}}
+
+    with driver.session() as session:
+        texts_result = session.run("""
+            MATCH (c:Clause)
+            WHERE c.id IN $clause_ids
+            RETURN c.id AS clause_id, c.raw_text AS raw_text
+        """, {"clause_ids": clause_ids})
+
+        # Also check overridden texts from Supabase
+        overridden = {}
+        conn2 = get_db()
+        try:
+            with conn2.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT clause_id, overridden_text FROM contract_clauses
+                    WHERE contract_id = %s AND is_active = true AND overridden_text IS NOT NULL
+                """, (contract_id,))
+                overridden = {r["clause_id"]: r["overridden_text"] for r in cur.fetchall()}
+        finally:
+            conn2.close()
+
+        orphan_counter = 0
+        for rec in texts_result:
+            cid = rec["clause_id"]
+            text = overridden.get(cid) or rec.get("raw_text") or ""
+            # Find all {{PLACEHOLDER}} patterns
+            found = re.findall(r'\{\{([A-Z_0-9]+)\}\}', text)
+            for placeholder in set(found):
+                full_name = f"{{{{{placeholder}}}}}"
+                if full_name not in known_names:
+                    orphan_counter += 1
+                    synthetic_id = f"ORPHAN_{placeholder}"
+                    parameters.append({
+                        "id": synthetic_id,
+                        "name": full_name,
+                        "data_type": "String",
+                        "is_required": True,
+                        "created_at": None,
+                        "description": f"Parameter found in clause text but not in knowledge graph",
+                        "example_value": "",
+                        "used_in_clauses": [cid],
+                    })
+                    known_names.add(full_name)
+
+    return parameters
+
+# ==================== PARAMETER DESCRIPTION GENERATOR ====================
+
+_description_cache: dict = {}  # Cleared on server restart
+
+def _generate_missing_descriptions(parameters: list, contract_id: str):
+    """
+    Generate short descriptions for parameters that don't have them.
+    Uses a single LLM call for all missing descriptions (token-efficient).
+    Results are cached in memory.
+    """
+    # Find params needing descriptions
+    needs_desc = []
+    for p in parameters:
+        bare_name = p["name"].strip("{}").replace("_", " ").title()
+        if p["id"] in _description_cache:
+            p["description"] = _description_cache[p["id"]]
+            continue
+        if not p.get("description") or p["description"] in ("", "Parameter found in clause text but not in knowledge graph"):
+            needs_desc.append(p)
+
+    if not needs_desc:
+        return
+
+    # Try LLM batch generation
+    try:
+        from graph_rag_engine import llm_client
+        if not llm_client.is_configured():
+            # Fallback: generate simple descriptions from the name
+            for p in needs_desc:
+                bare = p["name"].strip("{}").replace("_", " ")
+                p["description"] = f"Enter the {bare.lower()} for this contract"
+                _description_cache[p["id"]] = p["description"]
+            return
+
+        # Get contract info for context
+        conn = get_db()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT contract_type, jurisdiction FROM contracts WHERE id = %s", (contract_id,))
+                contract = cur.fetchone() or {}
+        finally:
+            conn.close()
+
+        param_names = [p["name"].strip("{}") for p in needs_desc]
+        prompt = f"""Generate a short user-friendly description for each contract parameter below.
+The contract is a {contract.get('contract_type', 'service agreement').replace('_', ' ')} under {contract.get('jurisdiction', 'India')} jurisdiction.
+
+IMPORTANT RULES:
+1. Write for a non-lawyer. Explain legal terms in plain English.
+2. If the parameter name contains legal jargon, explain what it means in simple words.
+3. Include what kind of value to enter (e.g., "Enter a number of days", "Enter a date like 2026-01-01").
+4. Keep each description to 1-2 sentences max.
+
+Examples of GOOD descriptions:
+- CURE_PERIOD: "How many days the other party gets to fix a problem before you can cancel the contract. Example: 15 days"
+- FM_NOTICE_DAYS: "Days to notify the other party when an unforeseeable event (like a natural disaster, pandemic, or government order) prevents you from fulfilling the contract. Example: 5 days"
+- NON_SOLICIT_PERIOD: "How long after the contract ends you agree not to recruit or hire the other party's employees. Example: 1 year"
+- LATE_PAYMENT_RATE: "Interest charged on overdue payments. Example: 1.5% per month"
+- ARBITRATION_SEAT: "The city where any legal disputes will be resolved through arbitration. Example: Mumbai"
+
+Parameters: {', '.join(param_names)}
+
+Respond in JSON format:
+{{{', '.join(f'"{n}": "description"' for n in param_names)}}}"""
+
+        result = llm_client.generate(prompt, "You are a legal contract assistant. Give brief, clear descriptions.")
+
+        for p in needs_desc:
+            bare = p["name"].strip("{}")
+            desc = result.get(bare, "")
+            if desc:
+                p["description"] = desc
+                _description_cache[p["id"]] = desc
+            else:
+                p["description"] = f"Enter the {bare.replace('_', ' ').lower()} for this contract"
+                _description_cache[p["id"]] = p["description"]
+
+    except Exception:
+        # Fallback: simple name-based descriptions
+        for p in needs_desc:
+            bare = p["name"].strip("{}").replace("_", " ")
+            p["description"] = f"Enter the {bare.lower()} for this contract"
+            _description_cache[p["id"]] = p["description"]
+
 
 # ==================== VALUE CONVERSION HELPER ====================
 
 def convert_parameter_value(data_type: str, value: Any) -> tuple:
     """
-    Convert value to appropriate column based on data_type
+    Convert value to appropriate column based on data_type.
+    Falls back to text storage if conversion fails (e.g., "2 days" for an integer field).
     Returns: (value_text, value_integer, value_decimal, value_date, value_currency)
     """
     if value is None or value == "":
@@ -135,19 +276,28 @@ def convert_parameter_value(data_type: str, value: Any) -> tuple:
         return str(value), None, None, None, None
     
     elif data_type_lower == "integer" or data_type_lower == "int" or data_type_lower == "number":
-        return None, int(value), None, None, None
+        try:
+            return None, int(value), None, None, None
+        except (ValueError, TypeError):
+            return str(value), None, None, None, None
     
     elif data_type_lower == "decimal" or data_type_lower == "float" or data_type_lower == "double":
-        return None, None, float(value), None, None
+        try:
+            return None, None, float(value), None, None
+        except (ValueError, TypeError):
+            return str(value), None, None, None, None
     
     elif data_type_lower == "date" or data_type_lower == "datetime":
-        if isinstance(value, str):
-            from datetime import datetime
-            parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
-            return None, None, None, parsed_date, None
-        elif isinstance(value, date):
-            return None, None, None, value, None
-        else:
+        try:
+            if isinstance(value, str):
+                from datetime import datetime
+                parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
+                return None, None, None, parsed_date, None
+            elif isinstance(value, date):
+                return None, None, None, value, None
+            else:
+                return str(value), None, None, None, None
+        except (ValueError, TypeError):
             return str(value), None, None, None, None
     
     elif data_type_lower == "currency" or data_type_lower == "money":
@@ -169,17 +319,22 @@ def convert_parameter_value(data_type: str, value: Any) -> tuple:
 @router.get("/{contract_id}/parameters/grouped")
 async def get_parameters_grouped(
     contract_id: str,
-    format: str = "display"  # "display" or "template"
+    format: str = "display",   # "display" | "template"
+    group_by: str = "clause",  # "clause" | "semantic"
 ):
     """
-    Get parameters grouped by clause type for better UX
-    
+    Get parameters grouped for UI rendering.
+
     Query params:
-    - format=display (default): Full parameter details for UI
-    - format=template: Simplified format ready for POST /bulk
-    
+    - format=display (default): Full parameter details for the stepper UI
+    - format=template: Simplified flat list ready for POST /bulk
+    - group_by=clause (default): Grouped by clause type (existing behaviour)
+    - group_by=semantic: Grouped by semantic category (People/Dates/Financial/…)
+      Each parameter is enriched with its current value + provenance (provided_by).
+
     Examples:
     - GET /api/contracts/{id}/parameters/grouped
+    - GET /api/contracts/{id}/parameters/grouped?group_by=semantic
     - GET /api/contracts/{id}/parameters/grouped?format=template
     """
     # Verify contract exists
@@ -191,71 +346,271 @@ async def get_parameters_grouped(
                 raise HTTPException(status_code=404, detail="Contract not found")
     finally:
         conn.close()
-    
-    # Fetch parameters for active clauses
+
+    # Fetch parameter definitions for active clauses from Neo4j
     parameters = fetch_parameters_for_active_clauses(contract_id)
-    
+
     if not parameters:
         return {
             "groups": [],
             "total_parameters": 0,
-            "message": "No parameters found for active clauses"
+            "filled_parameters": 0,
+            "auto_filled_count": 0,
+            "defaulted_count": 0,
+            "user_filled_count": 0,
+            "cascade_filled_count": 0,
+            "remaining_count": 0,
+            "message": "No parameters found for active clauses",
         }
-    
-    # Group by clause type
-    grouped = {}
+
+    # ── Fetch saved values + provenance from Postgres ──────────────────────
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    parameter_id,
+                    value_text, value_integer, value_decimal,
+                    value_date, value_currency,
+                    provided_by
+                FROM contract_parameters
+                WHERE contract_id = %s
+            """, (contract_id,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    # Build lookup: param_id → {value, provided_by}
+    saved: dict = {}
+    for row in rows:
+        pid = row["parameter_id"]
+        if row["value_text"] is not None:
+            val = row["value_text"]
+        elif row["value_integer"] is not None:
+            val = row["value_integer"]
+        elif row["value_decimal"] is not None:
+            val = float(row["value_decimal"])
+        elif row["value_date"] is not None:
+            val = row["value_date"].isoformat()
+        elif row["value_currency"] is not None:
+            val = row["value_currency"]
+        else:
+            val = None
+        saved[pid] = {"value": val, "provided_by": row["provided_by"]}
+
+    # ── Enrich each parameter with saved data ──────────────────────────────
+    for param in parameters:
+        entry = saved.get(param["id"], {})
+        param["current_value"] = entry.get("value")
+        param["provided_by"] = entry.get("provided_by")   # None = unfilled
+        raw_name = param["name"].strip("{}").replace("_", " ").title()
+        param["display_name"] = raw_name
+        if not param.get("description"):
+            param["description"] = ""
+        if not param.get("example_value"):
+            param["example_value"] = ""
+
+    # ── Generate descriptions for parameters missing them ──────────────────
+    _generate_missing_descriptions(parameters, contract_id)
+
+    # ── Summary counters ───────────────────────────────────────────────────
+    total = len(parameters)
+    filled = sum(1 for p in parameters if p["current_value"] is not None)
+    auto_filled = sum(1 for p in parameters if p.get("provided_by") == "auto_fill")
+    defaulted = sum(1 for p in parameters if p.get("provided_by") == "system_default")
+    cascaded = sum(1 for p in parameters if p.get("provided_by") == "cascade")
+    user_filled = sum(1 for p in parameters if p.get("provided_by") == "user")
+    remaining = total - filled
+
+    # ── template format ────────────────────────────────────────────────────
+    if format == "template":
+        clause_groups = _group_by_clause(parameters)
+        flat = [
+            {
+                "parameter_id": param["id"],
+                "name": param["name"],
+                "data_type": param["data_type"],
+                "is_required": param["is_required"],
+                "value": param["current_value"] if param["current_value"] is not None else "",
+            }
+            for group in clause_groups
+            for param in group["parameters"]
+        ]
+        return {
+            "instructions": "Fill in the 'value' field for each parameter, then POST to the endpoint below",
+            "post_url": f"/api/contracts/{contract_id}/parameters/bulk",
+            "post_method": "POST",
+            "parameters": flat,
+        }
+
+    # ── semantic grouping ──────────────────────────────────────────────────
+    if group_by == "semantic":
+        groups = _group_by_semantic(parameters)
+        return {
+            "groups": groups,
+            "total_parameters": total,
+            "filled_parameters": filled,
+            "auto_filled_count": auto_filled,
+            "defaulted_count": defaulted,
+            "cascade_filled_count": cascaded,
+            "user_filled_count": user_filled,
+            "remaining_count": remaining,
+            "required_parameters": sum(1 for p in parameters if p["is_required"]),
+            "optional_parameters": sum(1 for p in parameters if not p["is_required"]),
+            "completion_percentage": round(filled / total * 100) if total else 100,
+        }
+
+    # ── clause grouping (default) ──────────────────────────────────────────
+    sorted_groups = _group_by_clause(parameters)
+    return {
+        "groups": sorted_groups,
+        "total_parameters": total,
+        "total_groups": len(sorted_groups),
+        "filled_parameters": filled,
+        "required_parameters": sum(1 for p in parameters if p["is_required"]),
+        "optional_parameters": sum(1 for p in parameters if not p["is_required"]),
+        "auto_filled_count": auto_filled,
+        "defaulted_count": defaulted,
+        "cascade_filled_count": cascaded,
+        "remaining_count": remaining,
+        "completion_percentage": round(filled / total * 100) if total else 100,
+    }
+
+
+# ==================== GROUPING HELPERS ====================
+
+SEMANTIC_CATEGORIES: dict = {
+    "core":             {"label": "People & Parties",      "icon": "Users",        "color": "blue",   "order": 1},
+    "scope":            {"label": "Scope & Deliverables",  "icon": "FileText",     "color": "purple", "order": 2},
+    "payment":          {"label": "Financial Terms",       "icon": "DollarSign",   "color": "green",  "order": 3},
+    "term":             {"label": "Dates & Duration",      "icon": "Calendar",     "color": "orange", "order": 4},
+    "confidentiality":  {"label": "Confidentiality",       "icon": "Lock",         "color": "red",    "order": 5},
+    "non_compete":      {"label": "Non-Compete",           "icon": "ShieldOff",    "color": "red",    "order": 6},
+    "ip":               {"label": "Intellectual Property", "icon": "Lightbulb",    "color": "yellow", "order": 7},
+    "termination":      {"label": "Termination",           "icon": "XCircle",      "color": "red",    "order": 8},
+    "liability":        {"label": "Liability & Indemnity", "icon": "Shield",       "color": "slate",  "order": 9},
+    "dispute_resolution": {"label": "Dispute Resolution", "icon": "Scale",        "color": "slate",  "order": 10},
+    "governing_law":    {"label": "Governing Law",         "icon": "BookOpen",     "color": "slate",  "order": 11},
+    "data_protection":  {"label": "Data Protection",      "icon": "Database",     "color": "blue",   "order": 12},
+    "sla":              {"label": "SLA & Performance",    "icon": "Activity",     "color": "green",  "order": 13},
+    "other":            {"label": "Other",                 "icon": "MoreHorizontal","color": "gray",  "order": 99},
+}
+
+_NAME_TO_CATEGORY = {
+    "PARTY": "core", "WITNESS": "core", "SIGNATORY": "core", "NAME": "core",
+    "EMAIL": "core", "PHONE": "core", "ADDRESS": "core", "CITY": "core",
+    "STATE": "core", "COUNTRY": "core", "ENTITY": "core",
+    "DATE": "term", "DURATION": "term", "TERM": "term", "PERIOD": "term",
+    "RENEWAL": "term", "EXPIRY": "term",
+    "AMOUNT": "payment", "VALUE": "payment", "FEE": "payment",
+    "PAYMENT": "payment", "CURRENCY": "payment", "PRICE": "payment",
+    "RATE": "payment", "SALARY": "payment", "COMPENSATION": "payment", "PENALTY": "payment",
+    "CONFIDENTIAL": "confidentiality", "DISCLOSURE": "confidentiality",
+    "RETAIN": "confidentiality", "SECRET": "confidentiality",
+    "COMPETE": "non_compete", "NON_COMPETE": "non_compete",
+    "SOLICIT": "non_compete", "GEOGRAPHIC": "non_compete",
+    "IP": "ip", "INTELLECTUAL": "ip", "COPYRIGHT": "ip",
+    "PATENT": "ip", "TRADEMARK": "ip", "LICENSE": "ip",
+    "WORK": "scope", "SCOPE": "scope", "DELIVERABLE": "scope",
+    "SERVICE": "scope", "MILESTONE": "scope", "ACCEPTANCE": "scope",
+    "TERMINATION": "termination", "NOTICE": "termination",
+    "CURE": "termination", "DISSOLUTION": "termination",
+    "LIABILITY": "liability", "INDEMNIF": "liability", "INDEMN": "liability",
+    "WARRANTY": "liability", "INSURANCE": "liability",
+    "ARBITRATION": "dispute_resolution", "DISPUTE": "dispute_resolution",
+    "MEDIATION": "dispute_resolution", "FORUM": "dispute_resolution",
+    "JURISDICTION": "dispute_resolution",
+    "GOVERNING": "governing_law", "LAW": "governing_law", "STAMP": "governing_law",
+    "DATA": "data_protection", "BREACH": "data_protection",
+    "GDPR": "data_protection", "PROCESSING": "data_protection",
+    "SLA": "sla", "UPTIME": "sla", "RESPONSE": "sla", "SUPPORT": "sla",
+}
+
+
+def _infer_category(placeholder_name: str) -> str:
+    """Infer semantic category from {{PLACEHOLDER_NAME}}."""
+    bare = placeholder_name.strip("{}").upper()
+    for keyword, cat in _NAME_TO_CATEGORY.items():
+        if keyword in bare:
+            return cat
+    return "other"
+
+
+def _group_by_semantic(parameters: list) -> list:
+    """Group parameters by semantic category, ordered by display priority."""
+    buckets: dict = {}
+    for param in parameters:
+        cat = param.get("category") or _infer_category(param["name"])
+        if cat not in SEMANTIC_CATEGORIES:
+            cat = "other"
+        if cat not in buckets:
+            meta = SEMANTIC_CATEGORIES[cat]
+            buckets[cat] = {
+                "category": cat,
+                "label": meta["label"],
+                "icon": meta["icon"],
+                "color": meta["color"],
+                "order": meta["order"],
+                "parameters": [],
+                "total_count": 0,
+                "filled_count": 0,
+                "required_count": 0,
+                "auto_filled_count": 0,
+                "defaulted_count": 0,
+                "all_auto_filled": False,
+            }
+        if not any(p["id"] == param["id"] for p in buckets[cat]["parameters"]):
+            buckets[cat]["parameters"].append(param)
+            buckets[cat]["total_count"] += 1
+            if param["current_value"] is not None:
+                buckets[cat]["filled_count"] += 1
+            if param["is_required"]:
+                buckets[cat]["required_count"] += 1
+            if param.get("provided_by") == "auto_fill":
+                buckets[cat]["auto_filled_count"] += 1
+            if param.get("provided_by") == "system_default":
+                buckets[cat]["defaulted_count"] += 1
+
+    auto_sources = {"auto_fill", "system_default", "cascade"}
+    for bucket in buckets.values():
+        fully_filled = bucket["filled_count"] == bucket["total_count"]
+        all_auto = all(
+            p["provided_by"] in auto_sources
+            for p in bucket["parameters"]
+            if p["current_value"] is not None
+        )
+        bucket["all_auto_filled"] = fully_filled and all_auto
+
+    return sorted(buckets.values(), key=lambda x: x["order"])
+
+
+def _group_by_clause(parameters: list) -> list:
+    """Original behaviour: group by clause type prefix (PART, CONF, PAY, …)."""
+    grouped: dict = {}
     for param in parameters:
         for clause_id in param["used_in_clauses"]:
-            clause_type = clause_id.split('_')[0]
-            
+            clause_type = clause_id.split("_")[0]
             if clause_type not in grouped:
                 grouped[clause_type] = {
                     "clause_type": clause_type,
                     "clause_type_label": get_clause_type_label(clause_type),
                     "parameters": [],
                     "required_count": 0,
-                    "optional_count": 0
+                    "optional_count": 0,
+                    "filled_count": 0,
                 }
-            
-            # Avoid duplicates
             param_ids = [p["id"] for p in grouped[clause_type]["parameters"]]
             if param["id"] not in param_ids:
                 grouped[clause_type]["parameters"].append(param)
-                
                 if param["is_required"]:
                     grouped[clause_type]["required_count"] += 1
                 else:
                     grouped[clause_type]["optional_count"] += 1
-    
-    sorted_groups = sorted(grouped.values(), key=lambda x: x["clause_type"])
-    
-    # Return template format for testing
-    if format == "template":
-        return {
-            "instructions": "Fill in the 'value' field for each parameter, then POST to the endpoint below",
-            "post_url": f"/api/contracts/{contract_id}/parameters/bulk",
-            "post_method": "POST",
-            "parameters": [
-                {
-                    "parameter_id": param["id"],
-                    "name": param["name"],
-                    "data_type": param["data_type"],
-                    "is_required": param["is_required"],
-                    "value": ""  # Empty - ready to fill
-                }
-                for group in sorted_groups
-                for param in group["parameters"]
-            ]
-        }
-    
-    # Default: Display format for UI
-    return {
-        "groups": sorted_groups,
-        "total_parameters": len(parameters),
-        "total_groups": len(sorted_groups),
-        "required_parameters": sum(1 for p in parameters if p["is_required"]),
-        "optional_parameters": sum(1 for p in parameters if not p["is_required"])
-    }
+                if param["current_value"] is not None:
+                    grouped[clause_type]["filled_count"] += 1
+    return sorted(grouped.values(), key=lambda x: x["clause_type"])
+
+
 def get_clause_type_label(clause_type: str) -> str:
     """
     Convert clause type code to human-readable label
@@ -400,8 +755,9 @@ async def set_parameter_value(contract_id: str, request: ParameterValue, provide
     finally:
         conn.close()
     
-    # Get parameter data_type from Neo4j
+    # Get parameter data_type from Neo4j (default to String for orphan params)
     driver = get_neo4j_driver()
+    data_type = "String"
     with driver.session() as session:
         result = session.run("""
             MATCH (p:Parameter {id: $parameter_id})
@@ -409,13 +765,8 @@ async def set_parameter_value(contract_id: str, request: ParameterValue, provide
         """, {"parameter_id": request.parameter_id})
         
         param_def = result.single()
-        if not param_def:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Parameter '{request.parameter_id}' not found in Neo4j"
-            )
-        
-        data_type = param_def["data_type"]
+        if param_def:
+            data_type = param_def["data_type"]
     
     # Convert value to appropriate columns
     value_text, value_integer, value_decimal, value_date, value_currency = convert_parameter_value(
@@ -496,10 +847,8 @@ async def set_parameters_bulk(contract_id: str, request: BulkSetParametersReques
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             for param in request.parameters:
-                if param.parameter_id not in param_types:
-                    continue  # Skip unknown parameters
-                
-                data_type = param_types[param.parameter_id]
+                # Get data type — default to "String" for orphan params not in Neo4j
+                data_type = param_types.get(param.parameter_id, "String")
                 
                 # Convert value
                 value_text, value_integer, value_decimal, value_date, value_currency = convert_parameter_value(

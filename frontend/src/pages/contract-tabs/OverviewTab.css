@@ -1,0 +1,141 @@
+.overview-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.overview-section {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--sp-5);
+}
+
+.overview-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4) var(--sp-5);
+}
+
+.overview-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.overview-field--full {
+  grid-column: 1 / -1;
+}
+
+.overview-field__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+}
+
+.overview-field__value {
+  font-size: 0.875rem;
+  color: var(--ink-primary);
+}
+
+.overview-field__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.tag {
+  font-size: 0.75rem;
+  padding: 2px var(--sp-2);
+  background: var(--paper-secondary);
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  color: var(--ink-secondary);
+}
+
+.readiness-row {
+  display: flex;
+  gap: var(--sp-6);
+  margin-bottom: var(--sp-3);
+}
+
+.readiness-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.readiness-item__num {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--ink-primary);
+  line-height: 1;
+}
+
+.readiness-item__label {
+  font-size: 0.75rem;
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.parties-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.party-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--paper-primary);
+}
+
+.party-row__icon {
+  color: var(--ink-ghost);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.party-row__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.party-row__role {
+  color: var(--ink-tertiary);
+}
+
+.party-row__name {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--ink-primary);
+}
+
+.party-row__email, .party-row__type {
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+}
+
+.party-row__actions {
+  display: flex;
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}

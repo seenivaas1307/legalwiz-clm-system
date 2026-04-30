@@ -27,6 +27,11 @@ from template_routes import router as template_router
 from version_routes import router as version_router
 from esign_routes import router as esign_router
 
+# UX Enhancement Routes (Phase 1)
+from organization_routes import router as organization_router
+from saved_parties_routes import router as saved_parties_router
+from auto_fill_routes import router as auto_fill_router
+
 # Auth
 from auth_routes import router as auth_router
 from auth_middleware import get_current_user
@@ -57,6 +62,30 @@ async def lifespan(app: FastAPI):
         ensure_esign_columns()
     except Exception as e:
         logger.warning(f"E-sign columns setup: {e}")
+    try:
+        from organization_routes import _ensure_table as ensure_org_table
+        ensure_org_table()
+    except Exception as e:
+        logger.warning(f"Organization profiles table setup: {e}")
+    try:
+        # Migrate provided_by column from UUID to TEXT for provenance tracking
+        from config import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    ALTER TABLE contract_parameters
+                    ALTER COLUMN provided_by TYPE TEXT
+                    USING provided_by::TEXT
+                """)
+                conn.commit()
+        logger.info("Migrated contract_parameters.provided_by to TEXT")
+    except Exception as e:
+        logger.info(f"provided_by migration (may already be TEXT): {e}")
+    try:
+        from saved_parties_routes import _ensure_table as ensure_saved_parties_table
+        ensure_saved_parties_table()
+    except Exception as e:
+        logger.warning(f"Saved parties table setup: {e}")
     logger.info("Startup table creation complete.")
     yield
     # Shutdown: cleanly close Neo4j singleton driver + Postgres pool
@@ -117,6 +146,11 @@ app.include_router(template_router)
 app.include_router(version_router)
 app.include_router(esign_router)
 
+# UX Enhancement Routes (Phase 1)
+app.include_router(organization_router)
+app.include_router(saved_parties_router)
+app.include_router(auto_fill_router)
+
 # Auth
 app.include_router(auth_router)
 
@@ -130,6 +164,9 @@ class ContractType(str, Enum):
     DATA_PROCESSING_AGREEMENT = "data_processing_agreement"
     VENDOR_AGREEMENT = "vendor_agreement"
     PARTNERSHIP_AGREEMENT = "partnership_agreement"
+    FREELANCER_AGREEMENT = "freelancer_agreement"
+    MASTER_SERVICE_AGREEMENT = "master_service_agreement"
+    JOINT_VENTURE_AGREEMENT = "joint_venture_agreement"
 
 class ContractStatus(str, Enum):
     DRAFT = "draft"

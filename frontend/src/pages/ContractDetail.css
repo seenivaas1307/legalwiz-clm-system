@@ -1,0 +1,100 @@
+.contract-detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+  padding: 0;
+  transition: color var(--transition-fast);
+}
+
+.contract-detail__back:hover { color: var(--accent-action); }
+
+.contract-detail__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+
+.contract-detail__aux-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.contract-detail__aux-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: none;
+  border: 1px solid var(--border-hairline);
+  cursor: pointer;
+  color: var(--ink-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.contract-detail__aux-btn:hover {
+  background: var(--paper-secondary);
+  color: var(--ink-primary);
+  border-color: var(--border-medium);
+}
+
+.contract-detail__header {
+  margin-bottom: var(--sp-6);
+}
+
+.contract-detail__title-row {
+  margin-bottom: var(--sp-3);
+}
+
+.contract-detail__title-row h1 {
+  font-size: 1.625rem;
+}
+
+.contract-detail__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.contract-detail__type {
+  color: var(--ink-tertiary);
+}
+
+.contract-detail__jurisdiction {
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+}
+
+.contract-detail__date {
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+}
+
+.contract-detail__body {
+  padding-top: var(--sp-2);
+}
+
+/* Fade-in utility used in ContractDetail */
+.fade-in {
+  animation: fadeIn 0.25s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Step content area */
+.contract-detail .stepper__content {
+  padding-top: var(--sp-2);
+}

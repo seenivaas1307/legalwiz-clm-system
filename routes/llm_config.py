@@ -56,7 +56,10 @@ Do NOT invent new risks — only explain what the graph provides.
 SYSTEM_PROMPT_CHATBOT = SYSTEM_PROMPT_BASE + """
 You are answering questions about the user's specific contract.
 Always quote relevant clause text in your answers and cite clause IDs.
-If a question cannot be answered from the provided context, say so clearly.
+Prioritize the contract-specific data provided in the context for your answers.
+If the provided context contains relevant information, base your answer on it and cite the clauses.
+If the question goes beyond what the context covers, you MAY use your general legal knowledge to provide helpful guidance — but clearly indicate when you are providing general legal insight vs. contract-specific analysis.
+You have access to the actual rendered clause texts with parameter values filled in, so you can give precise answers about the contract's specific terms, dates, amounts, and parties.
 Be concise but thorough. Use bullet points for clarity.
 """
 
@@ -223,11 +226,14 @@ CHATBOT_PROMPT = """
 "{user_message}"
 
 ## Your Task
-Answer the user's question using ONLY the provided context.
+Answer the user's question by primarily using the contract-specific data above.
 - Quote specific clause text when relevant
 - Cite clause IDs (e.g., "According to clause CONF_MOD_001...")
 - Be concise and professional
-- If you cannot answer from the context, say so clearly
+- If the context fully answers the question, base your answer on it and cite clauses
+- If the context partially answers the question, use it as the foundation and supplement with your general legal knowledge to provide a complete and helpful answer
+- If the question is about general legal concepts or practices not covered by the contract data, use your legal knowledge to answer helpfully, noting that it is general guidance
+- Always clearly distinguish between what comes from the contract vs. general legal insight
 
 Respond in this JSON format:
 {{

@@ -1,0 +1,61 @@
+.contract-list__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+
+.contract-list__filters {
+  display: flex;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+  align-items: flex-end;
+}
+
+.filter-search {
+  position: relative;
+  flex: 1;
+  max-width: 320px;
+}
+
+.filter-search__icon {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-ghost);
+  pointer-events: none;
+}
+
+.filter-search__input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) calc(var(--sp-3) + 20px);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  background: var(--paper-elevated);
+  color: var(--ink-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.filter-search__input::placeholder { color: var(--ink-ghost); }
+.filter-search__input:focus {
+  outline: none;
+  border-color: var(--accent-action);
+}
+
+.filter-select {
+  min-width: 160px;
+}
+
+.contract-list__table {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table-title {
+  font-weight: 500;
+}

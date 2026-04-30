@@ -59,8 +59,36 @@ def get_db():
 def fetch_clauses_from_neo4j(contract_type: str, jurisdiction: str):
     """Fetch ALL clauses (all variants) from Neo4j"""
     driver = get_neo4j_driver()
-    neo4j_ct_id = contract_type.replace("_", "-")
-    
+
+    # Explicit alias map — handles both old snake_case values and correct IDs
+    _TYPE_ALIASES = {
+        # Old frontend values → correct Neo4j ID
+        "saas_service_agreement":       "saas-agreement",
+        "consulting_service_agreement": "consulting-agreement",
+        "software_license_agreement":   "software-license",
+        # New correct values (snake → dash via replace below)
+        "saas_agreement":               "saas-agreement",
+        "consulting_agreement":         "consulting-agreement",
+        "software_license":             "software-license",
+        "employment_nda":               "employment-nda",
+        "data_processing_agreement":    "data-processing-agreement",
+        "vendor_agreement":             "vendor-agreement",
+        "partnership_agreement":        "partnership-agreement",
+        "freelancer_agreement":         "freelancer-agreement",
+        "master_service_agreement":     "master-service-agreement",
+        "joint_venture_agreement":      "joint-venture-agreement",
+    }
+
+    neo4j_ct_id = _TYPE_ALIASES.get(contract_type) or contract_type.replace("_", "-")
+
+    # Map jurisdiction names: frontend uses "USA"/"India"/"UK", Neo4j uses "US"/"India"/"UK"
+    _JURISDICTION_MAP = {
+        "USA": "US",
+        "United States": "US",
+        "United Kingdom": "UK",
+    }
+    neo4j_jurisdiction = _JURISDICTION_MAP.get(jurisdiction, jurisdiction)
+
     cypher_query = """
     MATCH (ct:ContractType {id: $contract_type})
           -[rel:CONTAINS_CLAUSE]->(clauseType:ClauseType)
@@ -76,13 +104,13 @@ def fetch_clauses_from_neo4j(contract_type: str, jurisdiction: str):
       rel.description AS clause_description
     ORDER BY rel.sequence, c.variant
     """
-    
+
     with driver.session() as session:
         result = session.run(cypher_query, {
             "contract_type": neo4j_ct_id,
-            "jurisdiction": jurisdiction
+            "jurisdiction": neo4j_jurisdiction
         })
-        
+
         clauses = []
         for record in result:
             clauses.append({
@@ -95,6 +123,7 @@ def fetch_clauses_from_neo4j(contract_type: str, jurisdiction: str):
                 "clause_description": record["clause_description"]
             })
         return clauses
+
 
 # ==================== ROUTES ====================
 
@@ -143,7 +172,9 @@ async def generate_clauses(contract_id: str, default_variant: str = "Moderate"):
         if not neo4j_clauses:
             raise HTTPException(
                 status_code=404,
-                detail=f"No clauses for {contract['contract_type']} in {contract['jurisdiction']}"
+                detail=f"No clauses found for contract type '{contract['contract_type']}' "
+                       f"in jurisdiction '{contract['jurisdiction']}'. "
+                       f"Ensure the Neo4j knowledge graph has been populated for this combination."
             )
         
         # Insert ALL variants into database
@@ -229,47 +260,59 @@ async def get_active_clauses(contract_id: str):
                   c.risk_level AS risk_level,
                   ct.name AS clause_type_name
             """, {"clause_ids": clause_ids})
-            
+
             # Build lookup dict
             neo4j_data = {}
             for rec in result:
+                risk_level = rec.get("risk_level")
+                # Sanitize NaN / Infinity — JSON doesn't allow these
+                if isinstance(risk_level, float) and (risk_level != risk_level or risk_level in (float('inf'), float('-inf'))):
+                    risk_level = None
                 neo4j_data[rec["clause_id"]] = {
                     "raw_text": rec.get("raw_text"),
-                    "risk_level": rec.get("risk_level"),
+                    "risk_level": risk_level,
                     "clause_type_name": rec.get("clause_type_name")
                 }
-        
+
+        import math
+
+        def _safe_val(v):
+            """Convert any JSON-unsafe value to a serializable one."""
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                return None
+            return v
+
         # Group clauses by clause_type
         clause_groups = {}
         for clause in all_clauses:
             clause_type = clause["clause_type"]
             if clause_type not in clause_groups:
                 clause_groups[clause_type] = []
-            
+
             # Merge Supabase data + Neo4j data
-            clause_dict = dict(clause)
+            clause_dict = {k: _safe_val(v) for k, v in dict(clause).items()}
             neo4j_info = neo4j_data.get(clause["clause_id"], {})
             clause_dict["raw_text"] = neo4j_info.get("raw_text")
             clause_dict["risk_level"] = neo4j_info.get("risk_level")
             clause_dict["clause_type_name"] = neo4j_info.get("clause_type_name")
-            
+
             clause_groups[clause_type].append(clause_dict)
-        
+
         # Build result: active clauses with variants
         result = []
         for clause_type, variants in clause_groups.items():
             # Find active variant
             active = next((v for v in variants if v["is_active"]), None)
-            
+
             if active:
                 result.append({
                     **active,
                     "available_variants": variants
                 })
-        
+
         # Sort by sequence
         result.sort(key=lambda x: x["sequence"])
-        
+
         return result
     
     finally:

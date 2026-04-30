@@ -1,0 +1,135 @@
+.insights-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.insights-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.insights-section {
+  background: var(--paper-elevated);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--sp-5);
+}
+
+.insights-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.insights-summary {
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+  line-height: 1.7;
+  margin-bottom: var(--sp-5);
+}
+
+/* Risk items */
+.risk-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.risk-item {
+  border: 1px solid var(--border-hairline);
+  border-left: 4px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.risk-item__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-body);
+  transition: background var(--transition-fast);
+}
+
+.risk-item__header:hover { background: var(--paper-secondary); }
+
+.risk-item__title {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.risk-item__meta { flex-shrink: 0; }
+
+.risk-item__body {
+  border-top: 1px solid var(--border-hairline);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--paper-inset);
+}
+
+.risk-item__text {
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.risk-item__text strong { color: var(--ink-primary); }
+
+/* Recommendations */
+.rec-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.rec-item {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+}
+
+.rec-item__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.rec-item__type {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-action);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rec-item__clause {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink-primary);
+}
+
+.rec-item__priority {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--ink-tertiary);
+}
+
+.rec-item__reason {
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+  line-height: 1.6;
+  margin: 0;
+}

@@ -1,0 +1,24 @@
+.risk-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.risk-indicator--sm .risk-indicator__score { font-size: 0.8125rem; }
+.risk-indicator--sm .risk-indicator__label { font-size: 0.6875rem; }
+
+.risk-indicator--md .risk-indicator__score { font-size: 1rem; }
+.risk-indicator--md .risk-indicator__label { font-size: 0.75rem; }
+
+.risk-indicator--lg .risk-indicator__score {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 400;
+}
+.risk-indicator--lg .risk-indicator__label { font-size: 0.875rem; font-weight: 500; }
+
+.risk-indicator__label {
+  font-weight: 500;
+  opacity: 0.85;
+}
